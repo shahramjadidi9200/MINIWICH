@@ -50,12 +50,16 @@
 
 <script>
 const PRICE_ADMIN_PASSWORD = "9200";
+const ADMIN_PASSWORD_KEY = "minivich_admin_password_v1";
+function getAdminPassword(){ return localStorage.getItem(ADMIN_PASSWORD_KEY) || PRICE_ADMIN_PASSWORD; }
 
 function requestPricePassword(){
   document.getElementById('passwordGate').style.display='block';
   document.getElementById('passwordError').style.display='none';
   const input=document.getElementById('pricePassword');
   input.value='';
+  input.dataset.productGate='';
+  input.dataset.settingsGate='';
   setTimeout(()=>input.focus(),80);
 }
 function closePasswordGate(){
@@ -63,7 +67,7 @@ function closePasswordGate(){
 }
 function checkPricePassword(){
   const input=document.getElementById('pricePassword');
-  if(input.value === PRICE_ADMIN_PASSWORD){
+  if(input.value === getAdminPassword()){
     closePasswordGate();
     openPriceEditor();
   }else{
@@ -87,7 +91,7 @@ function checkPricePassword(){
       if(sizes.length){
         result[name] = {};
         sizes.forEach(s => {
-          const label = s.querySelector('small')?.textContent?.trim() || '';
+          const label = (s.childNodes[0]?.textContent || '').replace(/\s+/g,' ').trim();
           const price = s.querySelector('b')?.textContent?.replace(/[^\d]/g,'') || '';
           if(label && price) result[name][label] = Number(price);
         });
@@ -100,10 +104,31 @@ function checkPricePassword(){
   }
 
   const initial = getInitialPrices();
+  try {
+    const saved0 = JSON.parse(localStorage.getItem(PRICE_KEY) || '{}');
+    const merged0 = JSON.parse(JSON.stringify(initial));
+    Object.keys(saved0 || {}).forEach(name => {
+      if(saved0[name] && typeof saved0[name] === 'object' && merged0[name] && typeof merged0[name] === 'object') merged0[name] = Object.assign({}, merged0[name], saved0[name]);
+      else merged0[name] = saved0[name];
+    });
+    localStorage.setItem(PRICE_KEY, JSON.stringify(merged0));
+  } catch(e) {}
 
   function loadPrices(){
-    try { return JSON.parse(localStorage.getItem(PRICE_KEY)) || initial; }
-    catch(e){ return initial; }
+    // همیشه قیمت‌های اولیه را با قیمت‌های ذخیره‌شده ادغام می‌کنیم؛
+    // اگر قبلاً فقط بعضی محصولات ذخیره شده باشند، بقیه (از جمله پیتزاها)
+    // هم وارد ویرایشگر می‌شوند.
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(PRICE_KEY)) || {}; } catch(e) {}
+    const merged = JSON.parse(JSON.stringify(initial));
+    Object.keys(saved || {}).forEach(name => {
+      if(saved[name] && typeof saved[name] === 'object' && merged[name] && typeof merged[name] === 'object'){
+        merged[name] = Object.assign({}, merged[name], saved[name]);
+      } else {
+        merged[name] = saved[name];
+      }
+    });
+    return merged;
   }
 
   function fmt(n){ return new Intl.NumberFormat('fa-IR').format(Number(n)||0); }
@@ -117,7 +142,7 @@ function checkPricePassword(){
 
       if(sizes.length && typeof prices[name] === 'object'){
         sizes.forEach(s => {
-          const label = s.querySelector('small')?.textContent?.trim() || '';
+          const label = (s.childNodes[0]?.textContent || '').replace(/\s+/g,' ').trim();
           const b = s.querySelector('b');
           if(b && prices[name][label] != null) b.textContent = fmt(prices[name][label]);
         });
@@ -190,6 +215,183 @@ function checkPricePassword(){
   };
 
   applyPrices(loadPrices());
+  // expose price tools for the unified management panel
+  window.loadPrices = loadPrices;
+  window.applyPrices = applyPrices;
+  window.PRICE_KEY = PRICE_KEY;
+  window.fmt = fmt;
 })();
 </script>
+
+<style>
+#manageBtn{position:fixed;left:12px;bottom:62px;z-index:99;border:0;border-radius:14px;background:#1d8b3a;color:#fff;font-weight:900;padding:10px 13px;box-shadow:0 8px 24px #0009;cursor:pointer}
+#productEditor{display:none;position:fixed;inset:0;z-index:110;background:#000b;backdrop-filter:blur(8px);padding:14px;overflow:auto}
+#productEditor .box{max-width:720px;margin:20px auto;background:#17191d;border:1px solid #444;border-radius:20px;padding:16px}
+#productEditor h2{margin:0 0 6px;color:#ffd22e}.addHint{font-size:11px;color:#aaa;margin-bottom:14px}
+.pe-form{display:grid;gap:9px}.pe-form label{font-size:12px;color:#ddd;font-weight:700}.pe-form input,.pe-form select{width:100%;background:#24272c;border:1px solid #3a3e45;color:#fff;border-radius:9px;padding:10px;text-align:right}
+.priceMode{display:flex;gap:8px}.priceMode button{flex:1;border:1px solid #444;border-radius:10px;padding:9px;background:#24272c;color:#fff;font-weight:800}.priceMode button.active{background:#f5b51b;color:#111}
+.sizeFields{display:none;grid-template-columns:repeat(3,1fr);gap:7px}.sizeFields.show{display:grid}.singleField{display:block}.singleField.hide{display:none}
+.pe-preview{width:90px;height:90px;border-radius:12px;object-fit:cover;background:#24272c;display:block;margin-top:5px}.add-actions{display:flex;gap:8px;margin-top:15px}.add-actions button{flex:1;border:0;border-radius:12px;padding:11px;font-weight:900;cursor:pointer}.addSave{background:#f5b51b;color:#111}.addClose{background:#e9362c;color:#fff}
+#manageList{margin-top:18px;border-top:1px solid #333;padding-top:12px}.manageItem{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #2c2f35;font-size:12px}.manageItem button{border:0;border-radius:8px;padding:6px 9px;background:#e9362c;color:#fff;font-weight:800}
+</style>
+<button id="manageBtn" onclick="requestManagePassword()">➕ افزودن محصول</button>
+<div id="productEditor"><div class="box">
+<h2>مدیریت محصولات</h2><div class="addHint">محصول جدید به منوی انتخاب‌شده اضافه می‌شود و روی همین دستگاه ذخیره خواهد شد.</div>
+<div class="pe-form">
+<label>دسته‌بندی</label><select id="productCategory"></select>
+<label>نام محصول</label><input id="productName" placeholder="مثلاً برگر ویژه">
+<label>توضیحات کوتاه (اختیاری)</label><input id="productDesc" placeholder="مواد یا توضیح محصول">
+<label>عکس محصول (اختیاری)</label><input id="productImage" type="file" accept="image/*" onchange="previewProductImage(event)"><img id="productPreview" class="pe-preview" alt="پیش‌نمایش">
+<label>نوع قیمت</label><div class="priceMode"><button type="button" id="modeSingle" class="active" onclick="setPriceMode('single')">تک‌قیمت</button><button type="button" id="modeSizes" onclick="setPriceMode('sizes')">سایزبندی</button></div>
+<div id="singleField" class="singleField"><label>قیمت (تومان)</label><input id="productPrice" inputmode="numeric" placeholder="450000"></div>
+<div id="sizeFields" class="sizeFields"><input id="price1" inputmode="numeric" placeholder="یکنفره"><input id="price2" inputmode="numeric" placeholder="دونفره"><input id="price3" inputmode="numeric" placeholder="خانواده"></div>
+</div><div id="manageList"></div>
+<div class="add-actions"><button class="addSave" onclick="addProduct()">افزودن محصول</button><button class="addClose" onclick="closeProductEditor()">بستن</button></div>
+</div></div>
+<script>
+const PRODUCT_ADMIN_PASSWORD = PRICE_ADMIN_PASSWORD;
+const PRODUCT_KEY='minivich_products_v1'; let productImageData=''; let priceMode='single';
+function requestManagePassword(){requestProductPassword();}
+function requestProductPassword(){const g=document.getElementById('passwordGate');g.style.display='block';document.getElementById('passwordError').style.display='none';const i=document.getElementById('pricePassword');i.value='';i.dataset.gateAction='product';setTimeout(()=>i.focus(),80)}
+function requestSettingsPassword(){const g=document.getElementById('passwordGate');g.style.display='block';document.getElementById('passwordError').style.display='none';const i=document.getElementById('pricePassword');i.value='';i.dataset.gateAction='settings';setTimeout(()=>i.focus(),80)}
+const oldCheck=window.checkPricePassword;
+window.checkPricePassword=function(){const i=document.getElementById('pricePassword');
+  if(i.value !== getAdminPassword()){document.getElementById('passwordError').style.display='block';i.select();return;}
+  const action=i.dataset.gateAction||''; i.dataset.productGate=''; i.dataset.settingsGate=''; i.dataset.gateAction=''; closePasswordGate();
+  if(action==='settings'){openSettingsPanel();return;}
+  if(action==='product'){openProductEditor();return;}
+  openPriceEditor();
+}
+function setPriceMode(mode){priceMode=mode;document.getElementById('modeSingle').classList.toggle('active',mode==='single');document.getElementById('modeSizes').classList.toggle('active',mode==='sizes');document.getElementById('singleField').classList.toggle('hide',mode!=='single');document.getElementById('sizeFields').classList.toggle('show',mode==='sizes')}
+function previewProductImage(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{productImageData=r.result;document.getElementById('productPreview').src=productImageData};r.readAsDataURL(f)}
+function productCategories(){return [...document.querySelectorAll('section')].map(s=>({title:s.querySelector('.sect')?.textContent.trim(),el:s})).filter(x=>x.title)}
+function loadProducts(){try{return JSON.parse(localStorage.getItem(PRODUCT_KEY))||[]}catch(e){return[]}}
+function saveProducts(a){localStorage.setItem(PRODUCT_KEY,JSON.stringify(a))}
+function renderProduct(p,category){const cats=productCategories();let found=cats.find(x=>x.title===category);let sec=found?.el;if(!sec){sec=document.querySelector('section[id=\"'+CSS.escape(category)+'\"]')}if(!sec)return;let list=sec.querySelector('.list');if(!list){list=document.createElement('div');list.className='list';sec.appendChild(list)}const old=document.querySelector('.item[data-product-id=\"'+CSS.escape(p.id)+'\"]');if(old)old.remove();const art=document.createElement('article');art.className='item';art.dataset.productId=p.id;let img=p.image||'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="#24272c"/><text x="50%" y="55%" text-anchor="middle" fill="#aaa" font-size="14">محصول</text></svg>');let info='<div class="info"><h3>'+escapeHtml(p.name)+'</h3>'+(p.desc?'<small>'+escapeHtml(p.desc)+'</small>':'');if(p.mode==='sizes'){info+='<div class="sizes"><span>یکنفره <b>'+fmtP(p.prices[0])+'</b></span><span>دونفره <b>'+fmtP(p.prices[1])+'</b></span><span>خانواده <b>'+fmtP(p.prices[2])+'</b></span></div>'}else info+='<div class="single">'+fmtP(p.price)+' <small>تومان</small></div>';info+='</div>';art.innerHTML='<img src="'+img+'" alt="'+escapeHtml(p.name)+'">'+info;list.appendChild(art)}
+function fmtP(n){return new Intl.NumberFormat('fa-IR').format(Number(n)||0)} function escapeHtml(x){return String(x).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function applySavedProducts(){loadProducts().forEach(p=>renderProduct(p,p.category))}
+function openProductEditor(){const sel=document.getElementById('productCategory');sel.innerHTML=productCategories().map(x=>'<option>'+escapeHtml(x.title)+'</option>').join('');document.getElementById('manageList').innerHTML=loadProducts().map(p=>'<div class="manageItem"><span>'+escapeHtml(p.name)+' — '+escapeHtml(p.category)+'</span><button onclick="deleteProduct(\''+p.id+'\')">حذف</button></div>').join('');document.getElementById('productEditor').style.display='block'}
+function closeProductEditor(){document.getElementById('productEditor').style.display='none';productImageData='';document.getElementById('productImage').value='';document.getElementById('productPreview').removeAttribute('src');document.getElementById('productName').value='';document.getElementById('productDesc').value='';document.getElementById('productPrice').value='';document.getElementById('price1').value='';document.getElementById('price2').value='';document.getElementById('price3').value='';setPriceMode('single')}
+function addProduct(){const name=document.getElementById('productName').value.trim(),category=document.getElementById('productCategory').value;if(!name)return alert('نام محصول را وارد کنید.');const p={id:'p_'+Date.now(),name,desc:document.getElementById('productDesc').value.trim(),category,image:productImageData,mode:priceMode};if(priceMode==='single'){p.price=Number(document.getElementById('productPrice').value.replace(/[^\d]/g,''));if(!p.price)return alert('قیمت را وارد کنید.')}else{p.prices=[1,2,3].map(i=>Number(document.getElementById('price'+i).value.replace(/[^\d]/g,'')));if(p.prices.some(x=>!x))return alert('هر سه قیمت را وارد کنید.')}const all=loadProducts();all.push(p);try{saveProducts(all)}catch(e){console.warn('ذخیره در مرورگر انجام نشد:',e)}renderProduct(p,category);closeProductEditor();alert('محصول اضافه شد و باید همین حالا در بخش انتخاب‌شده نمایش داده شود.');}
+function deleteProduct(id){if(!confirm('این محصول حذف شود؟'))return;const all=loadProducts().filter(p=>p.id!==id);saveProducts(all);document.querySelector('.item[data-product-id="'+id+'"]')?.remove();openProductEditor()}
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',applySavedProducts)}else{applySavedProducts()}
+</script>
+
+
+<style>
+#fullProductManager{display:none;position:fixed;inset:0;z-index:150;background:#000c;backdrop-filter:blur(7px);padding:12px;overflow:auto}
+#fullProductManager .fpm-box{max-width:820px;margin:15px auto;background:#17191d;border:1px solid #444;border-radius:20px;padding:16px;color:#fff}
+.fpm-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.fpm-head h2{margin:0;color:#ffd22e}.fpm-close{background:#e9362c;color:#fff;border:0;border-radius:10px;padding:8px 12px;font-weight:900}
+.fpm-search{width:100%;box-sizing:border-box;background:#24272c;border:1px solid #3a3e45;color:#fff;border-radius:10px;padding:11px;margin:12px 0}
+.fpm-card{border:1px solid #333;border-radius:14px;padding:12px;margin:9px 0;background:#1d2025}.fpm-card h3{margin:0 0 8px}.fpm-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.fpm-grid input,.fpm-grid select{width:100%;box-sizing:border-box;background:#24272c;border:1px solid #3a3e45;color:#fff;border-radius:8px;padding:9px}.fpm-image{display:flex;gap:10px;align-items:center;margin:8px 0}.fpm-image img{width:65px;height:65px;object-fit:cover;border-radius:10px;background:#24272c}.fpm-save{background:#1d8b3a;color:#fff;border:0;border-radius:9px;padding:9px 13px;font-weight:900;margin-top:8px}.fpm-note{font-size:11px;color:#aaa;margin:8px 0}
+</style>
+<button id="editProductsBtn" onclick="requestSettingsPassword()" style="position:fixed;left:12px;bottom:116px;z-index:99;border:0;border-radius:14px;background:#1769aa;color:#fff;font-weight:900;padding:10px 13px;box-shadow:0 8px 24px #0009;cursor:pointer">✏️ ادیت محصولات</button>
+<div id="fullProductManager"><div class="fpm-box"><div class="fpm-head"><h2>✏️ ادیت محصولات و تصاویر</h2><button class="fpm-close" onclick="closeFullProductManager()">بستن</button></div><div class="fpm-note">می‌توانید نام، توضیحات، تصویر و قیمت هر محصول را ویرایش کنید.</div><input id="fpmSearch" class="fpm-search" placeholder="جستجوی محصول..." oninput="renderFullProductManager()"><div id="fpmList"></div></div></div>
+<script>
+const PRODUCT_EDIT_KEY='minivich_product_edits_v2';
+function loadProductEdits(){try{return JSON.parse(localStorage.getItem(PRODUCT_EDIT_KEY))||{}}catch(e){return{}}}
+function saveProductEdits(x){localStorage.setItem(PRODUCT_EDIT_KEY,JSON.stringify(x))}
+function allMenuItems(){return [...document.querySelectorAll('section .item')].map((item,idx)=>({item,idx,name:item.querySelector('h3')?.textContent.trim()||'',section:item.closest('section')?.querySelector('.sect')?.textContent.trim()||''})).filter(x=>x.name)}
+function openFullProductManager(){
+ document.getElementById('fullProductManager').style.display='block';renderFullProductManager();
+}
+function closeFullProductManager(){document.getElementById('fullProductManager').style.display='none'}
+function renderFullProductManager(){
+ const q=(document.getElementById('fpmSearch')?.value||'').trim().toLowerCase(); const edits=loadProductEdits();
+ let items=allMenuItems().filter(x=>!q||x.name.toLowerCase().includes(q));
+ document.getElementById('fpmList').innerHTML=items.map((x,i)=>{
+   const e=edits[x.name]||{}; const item=x.item; const img=item.querySelector('img')?.src||''; const sizes=[...item.querySelectorAll('.sizes span')];
+   const mode=sizes.length?'sizes':'single';
+   const ps=sizes.map(s=>s.querySelector('b')?.textContent.replace(/[^\d]/g,'')||'');
+   const price=mode==='single'?(item.querySelector('.single')?.textContent.replace(/[^\d]/g,'')||''):'';
+   return `<div class="fpm-card"><h3>${escapeHtml(x.name)}</h3><div class="fpm-note">دسته: ${escapeHtml(x.section)}</div>
+   <div class="fpm-grid"><input id="fpm_n_${i}" value="${escapeHtml(e.name??x.name)}" placeholder="نام محصول"><input id="fpm_d_${i}" value="${escapeHtml(e.desc??'')}" placeholder="توضیحات"></div>
+   <div class="fpm-image"><img id="fpm_img_${i}" src="${img}" onerror="this.style.display='none'"><input id="fpm_file_${i}" type="file" accept="image/*" onchange="fpmPreview(${i},event)"></div>
+   <div class="fpm-grid">${mode==='single'?`<input id="fpm_p_${i}" inputmode="numeric" value="${price}" placeholder="قیمت">`:`<input id="fpm_s1_${i}" inputmode="numeric" value="${ps[0]||''}" placeholder="یکنفره"><input id="fpm_s2_${i}" inputmode="numeric" value="${ps[1]||''}" placeholder="دونفره"><input id="fpm_s3_${i}" inputmode="numeric" value="${ps[2]||''}" placeholder="خانواده">`}</div>
+   <button class="fpm-save" onclick="saveFullProduct(${i})">💾 ذخیره تغییرات</button></div>`
+ }).join('');
+ window._fpmItems=items;
+}
+function fpmPreview(i,e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{document.getElementById('fpm_img_'+i).src=r.result;document.getElementById('fpm_img_'+i).style.display='block';window._fpmImage=window._fpmImage||{};window._fpmImage[i]=r.result};r.readAsDataURL(f)}
+function saveFullProduct(i){
+ const x=window._fpmItems[i], item=x.item, oldName=x.name, edits=loadProductEdits();
+ const name=document.getElementById('fpm_n_'+i).value.trim()||oldName, desc=document.getElementById('fpm_d_'+i).value.trim();
+ const e={name,desc,image:window._fpmImage?.[i]||item.querySelector('img')?.src||''};
+ item.querySelector('h3').textContent=name;
+ let sm=item.querySelector('.info small'); if(desc){if(!sm){sm=document.createElement('small');item.querySelector('.info').insertBefore(sm,item.querySelector('.info').firstChild?.nextSibling||null)}sm.textContent=desc}else if(sm)sm.remove();
+ if(e.image){let im=item.querySelector('img');if(im)im.src=e.image}
+ const sizes=item.querySelectorAll('.sizes span');
+ if(sizes.length){[1,2,3].forEach((n,j)=>{const el=document.getElementById('fpm_s'+n+'_'+i);if(el){const b=sizes[j]?.querySelector('b');if(b)b.textContent=window.fmt(el.value.replace(/[^\d]/g,''))}})}
+ else {const inp=document.getElementById('fpm_p_'+i);const single=item.querySelector('.single');if(inp&&single)single.innerHTML=window.fmt(inp.value.replace(/[^\d]/g,''))+' <small>تومان</small>'}
+ edits[oldName]=e; saveProductEdits(edits);
+ // also sync price store under new name
+ try{const prices=window.loadPrices(); if(name!==oldName){prices[name]=prices[oldName];delete prices[oldName]} if(sizes.length){prices[name]={};sizes.forEach((sp,j)=>{const inp=document.getElementById('fpm_s'+(j+1)+'_'+i);prices[name][['یکنفره','دونفره','خانواده'][j]]=Number(inp?.value.replace(/[^\d]/g,'')||0)})}else{const inp=document.getElementById('fpm_p_'+i);if(inp)prices[name]=Number(inp.value.replace(/[^\d]/g,''))}localStorage.setItem(window.PRICE_KEY,JSON.stringify(prices))}catch(e){}
+ alert('تغییرات ذخیره شد.');renderFullProductManager();
+}
+function applyProductEdits(){const edits=loadProductEdits();Object.keys(edits).forEach(old=>{const e=edits[old];const item=allMenuItems().find(x=>x.name===old)?.item;if(!item)return; if(e.name)item.querySelector('h3').textContent=e.name;if(e.image){const im=item.querySelector('img');if(im)im.src=e.image}if(e.desc){let sm=item.querySelector('.info small');if(!sm){sm=document.createElement('small');item.querySelector('.info').appendChild(sm)}sm.textContent=e.desc}})}
+// Robust price editor: pizzas use the 1st/2nd/3rd size field by position, so label wording cannot break saving.
+window.openPriceEditor=function(){
+ const prices=window.loadPrices(),groups={};
+ document.querySelectorAll('section').forEach(section=>{
+  const title=section.querySelector('.sect')?.textContent?.trim(); if(!title)return; groups[title]=[];
+  section.querySelectorAll('.item').forEach(item=>{const name=item.querySelector('h3')?.textContent?.trim(); if(name&&prices[name]!==undefined)groups[title].push([name,prices[name]]);});
+ });
+ let out=''; Object.entries(groups).forEach(([group,items])=>{if(!items.length)return;
+  out+=`<div class=\"pe-section\"><div class=\"pe-title\">${escapeHtml(group)}</div>`;
+  items.forEach(([name,val])=>{
+   if(val && typeof val==='object'){
+    out+=`<div class=\"pe-row\"><div class=\"pe-name\">${escapeHtml(name)}</div>`;
+    ['یکنفره','دونفره','خانواده'].forEach((k,j)=>out+=`<input inputmode=\"numeric\" data-name=\"${encodeURIComponent(name)}\" data-size=\"${k}\" value=\"${val[k]??''}\" placeholder=\"${k}\">`);
+    out+='</div>';
+   } else {
+    out+=`<div class=\"pe-row\" style=\"grid-template-columns:1fr 120px\"><div class=\"pe-name\">${escapeHtml(name)}</div><input inputmode=\"numeric\" data-name=\"${encodeURIComponent(name)}\" data-single=\"1\" value=\"${val??''}\"></div>`;
+   }
+  }); out+='</div>';
+ });
+ document.getElementById('priceFields').innerHTML=out; document.getElementById('priceEditor').style.display='block';
+};
+setTimeout(applyProductEdits,0);
+</script>
+
+
+<style>
+/* یک دکمه مدیریت به جای سه دکمه روی صفحه اصلی */
+#editPricesBtn,#manageBtn,#editProductsBtn{display:none!important}
+#settingsBtn{position:fixed;left:12px;bottom:12px;z-index:200;border:0;border-radius:14px;background:#f5b51b;color:#111;font-weight:900;padding:11px 15px;box-shadow:0 8px 24px #0009;cursor:pointer}
+#settingsPanel{display:none;position:fixed;inset:0;z-index:210;background:#000b;backdrop-filter:blur(8px);padding:14px;overflow:auto}
+#settingsPanel .settings-box{max-width:430px;margin:70px auto;background:#17191d;border:1px solid #444;border-radius:22px;padding:18px;color:#fff;box-shadow:0 15px 50px #000b}
+.settings-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.settings-head h2{margin:0;color:#ffd22e;font-size:20px}.settings-close{border:0;background:#e9362c;color:#fff;border-radius:10px;padding:8px 12px;font-weight:900}
+.settings-option{width:100%;border:1px solid #3a3e45;background:#24272c;color:#fff;border-radius:13px;padding:14px;margin:6px 0;text-align:right;font-weight:900;font-size:14px;cursor:pointer}.settings-option:active{transform:scale(.99)}
+.settings-note{font-size:11px;color:#aaa;line-height:1.8;margin-top:10px}
+</style>
+<button id="settingsBtn" onclick="requestSettingsPassword()">⚙️ تنظیمات</button>
+<div id="settingsPanel"><div class="settings-box">
+ <div class="settings-head"><h2>⚙️ مدیریت MINIWICH</h2><button class="settings-close" onclick="closeSettingsPanel()">بستن</button></div>
+ <button class="settings-option" onclick="closeSettingsPanel();openProductEditor()">➕ افزودن محصول جدید</button>
+ <button class="settings-option" onclick="closeSettingsPanel();openFullProductManager()">✏️ ادیت محصول و تصویر</button>
+ <button class="settings-option" onclick="closeSettingsPanel();openPriceEditor()">💰 تغییرات قیمت</button>
+ <button class="settings-option" onclick="openChangePassword()">🔑 تغییر رمز ورود</button>
+ <div class="settings-note">همه ابزارهای مدیریت از این بخش باز می‌شوند تا صفحه اصلی خلوت بماند.</div>
+</div></div>
+<div id="changePasswordModal" style="display:none;position:fixed;inset:0;z-index:230;background:#000b;backdrop-filter:blur(8px);padding:14px">
+ <div style="max-width:390px;margin:18vh auto 0;background:#17191d;border:1px solid #444;border-radius:20px;padding:20px;color:#fff;box-shadow:0 20px 60px #000">
+  <h2 style="margin:0 0 8px;color:#ffd22e">🔑 تغییر رمز ورود</h2>
+  <div style="font-size:11px;color:#aaa;margin-bottom:14px">رمز جدید برای ورود به بخش تنظیمات استفاده می‌شود.</div>
+  <input id="newAdminPassword" type="password" inputmode="numeric" autocomplete="new-password" placeholder="رمز جدید" style="width:100%;box-sizing:border-box;background:#24272c;border:1px solid #3a3e45;color:#fff;border-radius:10px;padding:12px;text-align:center;font-size:17px;outline:none">
+  <input id="confirmAdminPassword" type="password" inputmode="numeric" autocomplete="new-password" placeholder="تکرار رمز جدید" style="width:100%;box-sizing:border-box;background:#24272c;border:1px solid #3a3e45;color:#fff;border-radius:10px;padding:12px;text-align:center;font-size:17px;outline:none;margin-top:9px">
+  <div id="changePasswordError" style="display:none;color:#ff6258;text-align:center;font-size:12px;margin-top:9px"></div>
+  <div style="display:flex;gap:8px;margin-top:13px">
+   <button onclick="saveAdminPassword()" style="flex:1;border:0;border-radius:11px;padding:11px;background:#f5b51b;color:#111;font-weight:900">ذخیره رمز</button>
+   <button onclick="closeChangePassword()" style="flex:1;border:0;border-radius:11px;padding:11px;background:#2a2d33;color:#fff;font-weight:900">انصراف</button>
+  </div>
+ </div>
+</div>
+<script>
+function openChangePassword(){document.getElementById("changePasswordModal").style.display="block";document.getElementById("newAdminPassword").value="";document.getElementById("confirmAdminPassword").value="";document.getElementById("changePasswordError").style.display="none";setTimeout(()=>document.getElementById("newAdminPassword").focus(),80)}
+function closeChangePassword(){document.getElementById("changePasswordModal").style.display="none"}
+function saveAdminPassword(){const a=document.getElementById("newAdminPassword").value.trim(),b=document.getElementById("confirmAdminPassword").value.trim(),err=document.getElementById("changePasswordError");if(a.length<4){err.textContent="رمز باید حداقل ۴ کاراکتر باشد.";err.style.display="block";return}if(a!==b){err.textContent="تکرار رمز با رمز جدید یکسان نیست.";err.style.display="block";return}localStorage.setItem(ADMIN_PASSWORD_KEY,a);closeChangePassword();alert("رمز ورود با موفقیت تغییر کرد.")}
+function openSettingsPanel(){document.getElementById('settingsPanel').style.display='block'}
+function closeSettingsPanel(){document.getElementById('settingsPanel').style.display='none'}
+</script>
+
 </body></html>
